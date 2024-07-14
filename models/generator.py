@@ -123,9 +123,9 @@ class MPNet(nn.Module):
         self.num_tscblocks = num_tscblocks
         self.dense_encoder = DenseEncoder(h, in_channel=2)
 
-        self.TSConformerCBAM = nn.ModuleList([])
+        self.CBAMBlocks = nn.ModuleList([])
         for i in range(num_tscblocks):
-            self.TSConformerCBAM.append(CBAM_V2(h.dense_channel, h.dense_channel))
+            self.CBAMBlocks.append(CBAM_V2(h.dense_channel, h.dense_channel))
         
         self.mask_decoder = MaskDecoder(h, out_channel=1)
         self.phase_decoder = PhaseDecoder(h, out_channel=1)
@@ -137,7 +137,7 @@ class MPNet(nn.Module):
         x = self.dense_encoder(x)
 
         for i in range(self.num_tscblocks):
-            x = self.TSConformerCBAM[i](x)
+            x = self.CBAMBlocks[i](x)
         
         denoised_mag = (noisy_mag * self.mask_decoder(x)).permute(0, 3, 2, 1).squeeze(-1)
         denoised_pha = self.phase_decoder(x).permute(0, 3, 2, 1).squeeze(-1)
