@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from models.conformer import ConformerBlock
+from models.cbam import CBAM_V1, CBAM_V2
 from utils import get_padding_2d, LearnableSigmoid_2d
 from pesq import pesq
 from joblib import Parallel, delayed
@@ -116,15 +117,15 @@ class TSConformerBlock(nn.Module):
 
 
 class MPNet(nn.Module):
-    def __init__(self, h, num_tscblocks=4):
+    def __init__(self, h, num_tscblocks=8):
         super(MPNet, self).__init__()
         self.h = h
         self.num_tscblocks = num_tscblocks
         self.dense_encoder = DenseEncoder(h, in_channel=2)
 
-        self.TSConformer = nn.ModuleList([])
+        self.TSConformerCBAM = nn.ModuleList([])
         for i in range(num_tscblocks):
-            self.TSConformer.append(TSConformerBlock(h))
+            self.TSConformerCBAM.append(CBAM_V2(h.dense_channel, h.dense_channel))
         
         self.mask_decoder = MaskDecoder(h, out_channel=1)
         self.phase_decoder = PhaseDecoder(h, out_channel=1)
@@ -136,7 +137,7 @@ class MPNet(nn.Module):
         x = self.dense_encoder(x)
 
         for i in range(self.num_tscblocks):
-            x = self.TSConformer[i](x)
+            x = self.TSConformerCBAM[i](x)
         
         denoised_mag = (noisy_mag * self.mask_decoder(x)).permute(0, 3, 2, 1).squeeze(-1)
         denoised_pha = self.phase_decoder(x).permute(0, 3, 2, 1).squeeze(-1)
