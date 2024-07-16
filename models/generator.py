@@ -114,18 +114,35 @@ class TSConformerBlock(nn.Module):
         x = self.freq_conformer(x) + x
         x = x.view(b, t, f, c).permute(0, 3, 1, 2)
         return x
+    
+    
+class TSConformerCBAMBlock(nn.Module):
+    def __init__(self, h):
+        super(TSConformerCBAMBlock, self).__init__()
+        self.h = h
+        self.time_conformer = ConformerBlock(dim=h.dense_channel,  n_head=4, ccm_kernel_size=31, 
+                                             ffm_dropout=0.2, attn_dropout=0.2)
+        self.cbam = CBAM_V1(inplanes=h.dense_channel, planes=h.dense_channel)
+
+    def forward(self, x):
+        b, c, t, f = x.size()
+        x = x.permute(0, 3, 2, 1).contiguous().view(b*f, t, c)
+        x = self.time_conformer(x) + x
+        x = x.view(b, f, t, c).permute(0, 3, 2, 1)
+        x = self.cbam(x) + x
+        return x
 
 
 class MPNet(nn.Module):
-    def __init__(self, h, num_tscblocks=8):
+    def __init__(self, h):
         super(MPNet, self).__init__()
         self.h = h
-        self.num_tscblocks = num_tscblocks
+        self.num_bottleneck_blocks = h.num_bottleneck_blocks
         self.dense_encoder = DenseEncoder(h, in_channel=2)
 
         self.CBAMBlocks = nn.ModuleList([])
-        for i in range(num_tscblocks):
-            self.CBAMBlocks.append(CBAM_V2(h.dense_channel, h.dense_channel))
+        for i in range(h.num_bottleneck_blocks):
+            self.CBAMBlocks.append(TSConformerCBAMBlock(h))
         
         self.mask_decoder = MaskDecoder(h, out_channel=1)
         self.phase_decoder = PhaseDecoder(h, out_channel=1)
@@ -136,7 +153,7 @@ class MPNet(nn.Module):
         x = torch.cat((noisy_mag, noisy_pha), dim=1) # [B, 2, T, F]
         x = self.dense_encoder(x)
 
-        for i in range(self.num_tscblocks):
+        for i in range(self.num_bottleneck_blocks):
             x = self.CBAMBlocks[i](x)
         
         denoised_mag = (noisy_mag * self.mask_decoder(x)).permute(0, 3, 2, 1).squeeze(-1)
